@@ -98,12 +98,12 @@ def main():
     solution_file = Path(args.file) if args.file else None
     # Set the data root directory
     dataroot = Path(os.getenv('DATAROOT'))
-    assert dataroot.exists(), f"DATAROOT must be a valid path to the data directory, please set it in .env file\n Current value: {dataroot}"
+    assert dataroot.exists(), f"DATAROOT must be a valid path to the data directory, please set it in env VARIABLE\n Current value: {dataroot}"
 
     visualization_dir = Path(args.output)
     verbose = args.verbose
     seed = args.seed
     score = eval_func(dataroot, args.file, visualization_dir, seed, verbose)
-    print(f'Score: {score}')
+    # print(f'Score: {score}')
 if __name__ == '__main__':
     main()
