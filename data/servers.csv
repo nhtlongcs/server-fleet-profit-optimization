@@ -1,0 +1,8 @@
+﻿server_generation,server_type,release_time,purchase_price,slots_size,energy_consumption,capacity,life_expectancy,cost_of_moving,average_maintenance_fee
+CPU.S1,CPU,"[1,60]",15000,2,400,60,96,1000,288
+CPU.S2,CPU,"[37,96]",16000,2,460,75,96,1000,308
+CPU.S3,CPU,"[73,132]",19500,2,800,120,96,1000,375
+CPU.S4,CPU,"[109,168]",22000,2,920,160,96,1000,423
+GPU.S1,GPU,"[1,72]",120000,4,3000,8,96,1000,2310
+GPU.S2,GPU,"[49,120]",140000,4,3000,8,96,1000,2695
+GPU.S3,GPU,"[97,168]",160000,4,4200,8,96,1000,3080

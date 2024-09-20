@@ -1,0 +1,5 @@
+﻿datacenter_id,cost_of_energy,latency_sensitivity,slots_capacity
+DC1,0.25,low,25245
+DC2,0.35,medium,15300
+DC3,0.65,high,7020
+DC4,0.75,high,8280
