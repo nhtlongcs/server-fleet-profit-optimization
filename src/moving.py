@@ -29,7 +29,7 @@ from gurobi_utils.license import load_wsl_lic
 
 LICENSE_DICT = load_wsl_lic('gurobi.lic')
 
-_demand, _datacenters, _servers, _selling_prices = load_problem_data(path="../../data")
+_demand, _datacenters, _servers, _selling_prices = load_problem_data(path="../data")
 # GET THE DEMAND
 # SET THE RANDOM SEED
 np.random.seed(3329)

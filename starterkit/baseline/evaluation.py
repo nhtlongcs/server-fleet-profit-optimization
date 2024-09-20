@@ -303,7 +303,7 @@ def check_datacenter_slots_size_constraint(fleet):
     constraint = test.any()
     if constraint:
         raise(ValueError('Constraint 2 has been violated.'))
-
+    return slots
 
 def get_utilization(D, Z):
     # CALCULATE OBJECTIVE U = UTILIZATION
@@ -337,7 +337,7 @@ def get_profit(D, Z, selling_prices, fleet):
     # CALCULATE OBJECTIVE P = PROFIT
     R = get_revenue(D, Z, selling_prices)
     C = get_cost(fleet)
-    return R - C
+    return R - C, R, C
 
 
 def get_revenue(D, Z, selling_prices):
@@ -453,9 +453,26 @@ def get_evaluation(fleet,
     demand = get_actual_demand(demand)
     OBJECTIVE = 0
     FLEET = pd.DataFrame()
+    metrics = {
+            'P': [],
+            'R': [],
+            'C': [],
+            'D': {
+                f'{sg}_{ls}': [] for sg in get_known('server_generation') for ls in get_known('latency_sensitivity')
+            },
+            'Z': {
+                f'{sg}_{ls}': [] for sg in get_known('server_generation') for ls in get_known('latency_sensitivity')
+            },
+            'SLOTS': {
+                'DC1': [],
+                'DC2': [],
+                'DC3': [],
+                'DC4': [],
+            }
+        }
     # if ts-related fleet is empty then current fleet is ts-fleet
     for ts in range(1, time_steps+1):
-
+        
         # GET THE ACTUAL DEMAND AT TIMESTEP ts
         D = get_time_step_demand(demand, ts)
 
@@ -463,15 +480,12 @@ def get_evaluation(fleet,
         ts_fleet = get_time_step_fleet(fleet, ts)
 
         # GET THE PRICES AT TIMESTEP ts
-        
         ts_prices = get_time_step_prices(pricing_strategy, ts)
 
-        import pdb; pdb.set_trace()
         # UPDATE THE SELLING PRICES ACCORDING TO PRICES AT TIMESTEP ts
         selling_prices = update_selling_prices(selling_prices, ts_prices)
 
         # UPDATE THE DEMAND ACCORDING TO PRICES AT TIMESTEP ts
-        import pdb; pdb.set_trace()
         D = update_demand_according_to_prices(D, selling_prices, base_prices, elasticity)
 
         if ts_fleet.empty and not FLEET.empty:
@@ -488,20 +502,37 @@ def get_evaluation(fleet,
             Zf = get_capacity_by_server_generation_latency_sensitivity(FLEET)
 
             # CHECK CONSTRAINTS
-            check_datacenter_slots_size_constraint(FLEET)
-
+            slots = check_datacenter_slots_size_constraint(FLEET)
+            for dc in get_known('datacenter_id'):
+                if dc in slots.index:
+                    metrics['SLOTS'][dc].append(float(slots.loc[dc, 'slots_size'] / slots.loc[dc, 'slots_capacity']))
+                else:
+                    metrics['SLOTS'][dc].append(0)
             # EVALUATE THE OBJECTIVE FUNCTION AT TIMESTEP ts
             # U = get_utilization(D, Zf)
 
             # L = get_normalized_lifespan(FLEET)
 
-            P = get_profit(D, 
+            P, R, C = get_profit(D, 
                            Zf, 
                            selling_prices,
                            FLEET)
 
             OBJECTIVE += P
-
+            
+            for sg in get_known('server_generation'):
+                for ls in get_known('latency_sensitivity'):
+                    if ls in Zf.columns:
+                        # metrics['Z'][(sg, ls)].append(Zf[ls].get(sg, default=0))
+                        metrics['Z'][f'{sg}_{ls}'].append(float(Zf[ls].get(sg, default=0)))
+                    else:
+                        # metrics['Z'][(sg, ls)].append(0)
+                        metrics['Z'][f'{sg}_{ls}'].append(0)
+                    metrics['D'][f'{sg}_{ls}'].append(float(D[ls].get(sg, default=0)))
+            
+            metrics['P'].append(float(P))
+            metrics['R'].append(float(R))
+            metrics['C'].append(float(C))
             # PUT ENTIRE FLEET on HOLD ACTION
             FLEET = put_fleet_on_hold(FLEET)
 
@@ -518,7 +549,14 @@ def get_evaluation(fleet,
         if verbose:
             print(output)
             
-    return OBJECTIVE
+    
+    import rich
+    rich.print('Debugging')
+    rich.print(f"Profit : {sum(metrics['P']):0,.2f}")
+    rich.print(f"- Revenue : {sum(metrics['R']):0,.2f}")
+    rich.print(f"- Cost : {sum(metrics['C']):0,.2f}")
+    
+    return OBJECTIVE, metrics
 
 
 def evaluation_function(fleet, 

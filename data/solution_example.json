@@ -36,11 +36,12 @@
       "action": "hold"
     }
   ],
-  "pricing_strategy": [{
-						"time_step": 1,
-						"latency_sensitivity": "low",
-						"server_generation": "CPU.S1",
-						"price": 15
-						}
-					]
+  "pricing_strategy": [
+    {
+      "time_step": 1,
+      "latency_sensitivity": "low",
+      "server_generation": "CPU.S1",
+      "price": 15
+    }
+  ]
 }

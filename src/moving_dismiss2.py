@@ -29,7 +29,9 @@ from gurobi_utils.license import load_wsl_lic
 
 LICENSE_DICT = load_wsl_lic('gurobi.lic')
 
-_demand, _datacenters, _servers, _selling_prices = load_problem_data(path="../data")
+_demand, datacenters, servers, _selling_prices = load_problem_data(path="../data")
+# demand, datacenters, servers, selling_prices = load_problem_data(path='../../data')
+
 # GET THE DEMAND
 # SET THE RANDOM SEED
 np.random.seed(3329)
@@ -55,56 +57,35 @@ def adjust_capacity_by_failure_rate(x):
 # Define the sets (Servers, Time, Datacenters)
 begin_ts = 0
 time_steps = np.arange(begin_ts + 1, 168 + 1)
-latency_sensitivity = ['high', 'medium', 'low']
-datacenters_id = ['DC1', 'DC2', 'DC3', 'DC4']
-server_types = ['CPU.S1', 'CPU.S2', 'CPU.S3', 'CPU.S4', 'GPU.S1', 'GPU.S2', 'GPU.S3']
-# Capacity of datacenters
-datacenter_slots = {'DC1': 25245, 'DC2': 15300, 'DC3': 7020, 'DC4': 8280}
+
+
+
+latency_sensitivity = list(datacenters['latency_sensitivity'].unique())
+datacenters_id = list(datacenters['datacenter_id'].values)
+datacenter_slots = datacenters.set_index('datacenter_id').to_dict()['slots_capacity']
 datacenter_slots = {k: v-2 for k, v in datacenter_slots.items()}
-datacenter_slots['DC3'] -= 40
-# Mapping between datacenters and latency sensitivity
-datacenter_latency_map = {'DC1': 'low', 'DC2': 'medium', 'DC3': 'high', 'DC4': 'high'}
-buying_cost = {'CPU.S1': 15000, 'CPU.S2': 16000, 'CPU.S3': 19500, 'CPU.S4': 22000, 'GPU.S1':120000, 'GPU.S2':140000, 'GPU.S3':160000}
+# datacenter_slots['DC3'] -= 40
+
+server_types = list(servers['server_generation'].values)
+buying_cost = servers.set_index('server_generation').to_dict()['purchase_price']
+
+# moving_cost = servers.set_index('server_generation').to_dict()['cost_of_moving']
 moving_cost = 1000
-energy_cost = {'DC1': 0.25, 'DC2': 0.35, 'DC3': 0.65, 'DC4':0.75}
-maintain_cost = {'CPU.S1': 288, 'CPU.S2': 308, 'CPU.S3': 375, 'CPU.S4': 423, 'GPU.S1':2310, 'GPU.S2':2695, 'GPU.S3':3080}
+maintain_cost = servers.set_index('server_generation').to_dict()['average_maintenance_fee']
+energy_cost = datacenters.set_index('datacenter_id').to_dict()['cost_of_energy']
+energy_consumption = servers.set_index('server_generation').to_dict()['energy_consumption']
+energy_prices = {(sg, dc): energy_cost[dc] * energy_consumption[sg] for sg in server_types for dc in datacenters_id}
 
-server_slots = {'CPU.S1': 2, 'CPU.S2': 2, 'CPU.S3': 2, 'CPU.S4': 2, 'GPU.S1':4, 'GPU.S2':4, 'GPU.S3':4}
-server_capacity = {'CPU.S1': 60, 'CPU.S2': 75, 'CPU.S3': 120, 'CPU.S4': 160, 'GPU.S1':8, 'GPU.S2':8, 'GPU.S3':8}
-life_expectancy = 96  # Servers older than 96 time steps perish
-lifespan = np.arange(1, life_expectancy + 1)
-release_time = {'CPU.S1': [1,60], 'CPU.S2': [37,96], 'CPU.S3': [73,100], 'CPU.S4': [109,168], 'GPU.S1':[1,72], 'GPU.S2':[49,120], 'GPU.S3':[97,168]}
-energy_consumption = {'CPU.S1': 400, 'CPU.S2': 460, 'CPU.S3': 800, 'CPU.S4': 920, 'GPU.S1':3000, 'GPU.S2':3000, 'GPU.S3':4200}
+server_slots = servers.set_index('server_generation').to_dict()['slots_size']
+server_capacity = servers.set_index('server_generation').to_dict()['capacity']
 
-energy_prices = {('CPU.S1', 'DC1'): 100.0,
-                ('CPU.S1', 'DC2'): 140.0,
-                ('CPU.S1', 'DC3'): 260.0,
-                ('CPU.S1', 'DC4'): 300.0,
-                ('CPU.S2', 'DC1'): 115.0,
-                ('CPU.S2', 'DC2'): 161.0,
-                ('CPU.S2', 'DC3'): 299.0,
-                ('CPU.S2', 'DC4'): 345.0,
-                ('CPU.S3', 'DC1'): 200.0,
-                ('CPU.S3', 'DC2'): 280.0,
-                ('CPU.S3', 'DC3'): 520.0,
-                ('CPU.S3', 'DC4'): 600.0,
-                ('CPU.S4', 'DC1'): 230.0,
-                ('CPU.S4', 'DC2'): 322.0,
-                ('CPU.S4', 'DC3'): 598.0,
-                ('CPU.S4', 'DC4'): 690.0,
-                ('GPU.S1', 'DC1'): 750.0,
-                ('GPU.S1', 'DC2'): 1050.0,
-                ('GPU.S1', 'DC3'): 1950.0,
-                ('GPU.S1', 'DC4'): 2250.0,
-                ('GPU.S2', 'DC1'): 750.0,
-                ('GPU.S2', 'DC2'): 1050.0,
-                ('GPU.S2', 'DC3'): 1950.0,
-                ('GPU.S2', 'DC4'): 2250.0,
-                ('GPU.S3', 'DC1'): 1050.0,
-                ('GPU.S3', 'DC2'): 1470.0,
-                ('GPU.S3', 'DC3'): 2730.0,
-                ('GPU.S3', 'DC4'): 3150.0
-                }
+
+datacenter_latency_map = datacenters.set_index('datacenter_id').to_dict()['latency_sensitivity']
+# life_expectancy = servers.set_index('server_generation').to_dict()['life_expectancy']
+life_expectancy = 96
+
+release_time = servers.set_index('server_generation').to_dict()['release_time']
+release_time = {k: eval(v) for k, v in release_time.items()}
 
 demand = {}
 D = actual_demand.copy()
@@ -293,7 +274,7 @@ for ts in time_steps:
     total_profit += profit_t
 
 # objective = total_profit + 1700*total_L + 20*total_U
-objective = total_profit + (total_L - total_buy) + total_U 
+objective = total_profit
 
     # # Accumulate the difference between demand and capacity
     # total_diff_demand_capacity += gp.quicksum(diff_demand_capacity[ts, sg, ls] for sg in server_types for ls in latency_sensitivity)
