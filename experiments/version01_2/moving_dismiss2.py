@@ -120,7 +120,7 @@ for sg in server_types:
     for ls in latency_sensitivity:  
         hiring_prices[(sg, ls)] = _selling_prices[(_selling_prices['server_generation'] == sg) & (_selling_prices['latency_sensitivity'] == ls)]['selling_price'].values[0]
 
-with open(f'min_recorded.pkl', 'rb') as f:
+with open(f'min_recorded_{seed}.pkl', 'rb') as f:
     min_recorded = pickle.load(f)
 # with open(f'inventory_at_{begin_ts}.pkl', 'rb') as f:
 #     initial_inventory = pickle.load(f)
@@ -494,18 +494,18 @@ if model.status == GRB.OPTIMAL:
 #     rich.print(f"Revenue: {R:0,.2f}")
 # else:
 #     print("No optimal solution found.")
-with open(f'P_recorded.json', 'w') as f:
-    json.dump(P_recorded, f)
-with open(f'U_recorded.json', 'w') as f:
-    json.dump(U_recorded, f)
-with open(f'pricing_strategy.json', 'w') as f:
+# with open(f'P_recorded.json', 'w') as f:
+#     json.dump(P_recorded, f)
+# with open(f'U_recorded.json', 'w') as f:
+#     json.dump(U_recorded, f)
+with open(f'pricing_strategy_{seed}.json', 'w') as f:
     json.dump(pricing_stategies, f)
 
 # with open(f'new_demand.pkl', 'wb') as f:
 #     pickle.dump(demand_recorded, f)
 
 action_df = pd.DataFrame(action_dict)
-action_df.to_csv('all_action_df.csv', index=False)
+action_df.to_csv(f'all_action_df_{seed}.csv', index=False)
 # action_df.to_csv('dismiss_action_df_reduce_slot.csv', index=False)
 # import pdb; pdb.set_trace()
 # df_to_submissions(initial_inventory, action_df)

@@ -464,14 +464,14 @@ if model.status == GRB.OPTIMAL:
 #     rich.print(f"Revenue: {R:0,.2f}")
 # else:
 #     print("No optimal solution found.")
-with open(f'P_recorded.json', 'w') as f:
-    json.dump(P_recorded, f)
-with open(f'U_recorded.json', 'w') as f:
-    json.dump(U_recorded, f)
-with open(f'min_recorded.pkl', 'wb') as f:
+# with open(f'P_recorded.json', 'w') as f:
+#     json.dump(P_recorded, f)
+# with open(f'U_recorded.json', 'w') as f:
+#     json.dump(U_recorded, f)
+with open(f'min_recorded_{seed}.pkl', 'wb') as f:
     pickle.dump(min_recorded, f)
 action_df = pd.DataFrame(action_dict)
-action_df.to_csv('all_action_df.csv', index=False)
+action_df.to_csv(f'all_action_df_{seed}.csv', index=False)
 # action_df.to_csv('dismiss_action_df_reduce_slot.csv', index=False)
 # import pdb; pdb.set_trace()
 # df_to_submissions(initial_inventory, action_df)

@@ -266,7 +266,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
 
     solution = solution[['time_step', 'action', 'server_id', 'datacenter_id', 'server_generation']]
     final_solution = solution.to_dict(orient='records')
-    with open('pricing_strategy.json', 'r') as f:
+    with open(f'pricing_strategy_{seed}.json', 'r') as f:
         pricing_strategy = json.load(f)
     final_solution = {
         'fleet': final_solution,
@@ -277,7 +277,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
     print(f'Submission saved to {path}')
 
 def main():
-    all_action_df = pd.read_csv('all_action_df.csv')
+    all_action_df = pd.read_csv(f'all_action_df_{seed}.csv')
     df_to_submissions(all_action_df, path=f'{seed}.json')
     done_flag.set()  # Signal that my_code is done
 
