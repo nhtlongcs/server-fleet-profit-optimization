@@ -1,0 +1,1 @@
+simple solve buy, move, dismiss without pricing strategy
