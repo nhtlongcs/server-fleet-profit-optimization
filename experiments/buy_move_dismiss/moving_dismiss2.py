@@ -31,7 +31,7 @@ if len(sys.argv) < 2:
     raise SystemExit
 else:
     seed = sys.argv[1]
-    slot_bound = int(sys.argv[2])
+    # slot_bound = int(sys.argv[2])
 
 from gurobi_utils.license import load_wsl_lic
 
@@ -83,7 +83,7 @@ datacenters_id = list(datacenters['datacenter_id'].values)
 datacenter_slots = datacenters.set_index('datacenter_id').to_dict()['slots_capacity']
 # datacenter_slots = {k: v-2 for k, v in datacenter_slots.items()}
 # datacenter_slots = {k: v-41 for k, v in datacenter_slots.items()}
-datacenter_slots = {k: v-slot_bound for k, v in datacenter_slots.items()}
+# datacenter_slots = {k: v-slot_bound for k, v in datacenter_slots.items()}
 
 # datacenter_slots['DC3'] -= 20
 

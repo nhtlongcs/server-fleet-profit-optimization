@@ -21,6 +21,6 @@ for i in "${!args_list[@]}"; do
     echo "Running with arguments $arg and $argb"
     python moving_dismiss.py "$arg" "$argb" 
     python moving_dismiss2.py "$arg" "$argb" 
-    python cook2.py "$arg"
+    python cook.py "$arg"
     huawei-eval -f "$arg.json" -s "$arg" -v
 done

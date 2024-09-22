@@ -1,34 +1,25 @@
+
 import json
-import uuid 
-import threading
-import pandas as pd
 import math
-
-import rich
+import uuid 
+import pandas as pd
 from baseline.utils import load_problem_data
-from animation import (
-    rabbit_frames, finished_frame, clear
-)
-import time
-import warnings
-
+import rich
 from baseline.evaluation import change_elasticity_format, change_selling_prices_format, get_profit, get_time_step_prices, update_demand_according_to_prices, update_selling_prices, pricing_data_preparation, get_actual_demand, get_time_step_demand
+import numpy as np
+import random
+import warnings
 warnings.filterwarnings("ignore")
-
-done_flag = threading.Event()
-
 from baseline.evaluation import (
     get_capacity_by_server_generation_latency_sensitivity,
     check_datacenter_slots_size_constraint,
     put_fleet_on_hold,
     update_fleet
 )
-import numpy as np
 import sys
 from tqdm import tqdm
 if len(sys.argv) < 2:
     print('Usage: python cook_all.py <seed>')
-    raise SystemExit
 else:
     seed = sys.argv[1]
 
@@ -39,9 +30,9 @@ load_dotenv()
 data_path = os.environ.get('DATAROOT')
 assert data_path is not None, 'Please set the environment variable DATAROOT'
 
-def df_to_submissions(all_action_df, path, verbose=False):
+def df_to_submissions(all_action_df, path):
     solution = pd.DataFrame()
-    
+    # selling_prices = change_selling_prices_format(_selling_prices)
     demand, datacenters, servers, _selling_prices, elasticity = load_problem_data(path=data_path)
     np.random.seed(int(seed))
     random.seed(int(seed))
@@ -49,6 +40,8 @@ def df_to_submissions(all_action_df, path, verbose=False):
     # ceil_ratio = 10
     demand = get_actual_demand(demand)
     
+    ceil_ratio = 2
+
     # selling_prices = change_selling_prices_format(_selling_prices)
     with open(f'pricing_strategy_{seed}.json', 'r') as f:
         pricing_strategy_json = json.load(f)
@@ -57,6 +50,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
     pricing_strategy = pricing_data_preparation(pd.DataFrame(pricing_strategy_json))
     selling_prices = change_selling_prices_format(_selling_prices)
     base_prices = selling_prices.copy()
+
     def get_ts_fleet(fleet, ts):
         # buy_df = df_init[(df_init['time_step'] == ts)]
         # move_df = df_solution[(df_solution['time_step'] == ts)]
@@ -66,16 +60,14 @@ def df_to_submissions(all_action_df, path, verbose=False):
         # BUY NEW SERVERS
         buy_sv = []
         for i, row in action_df.iterrows(): # time_step
-            
+            # num_servers = math.ceil(row['buying_servers'])
 
-            # num_servers = int(row['buying_servers'])
             if ts % ceil_ratio ==0:
                 num_servers = math.ceil(row['buying_servers'])
             else:
                 num_servers = int(row['buying_servers'])
 
 
-            # num_servers = int(row['buying_servers'])
             for _ in range(num_servers):
                 sv_id = str(uuid.uuid4())
                 buy_sv.append({
@@ -91,6 +83,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
         # ADD REQUIRED FIELDS
         if solution.empty:
             solution = pd.DataFrame(columns=['time_step', 'datacenter_id', 'server_generation', 'server_id','action'])
+        
         solution = solution.merge(servers, on='server_generation', how='left')
         solution = solution.merge(datacenters, on='datacenter_id', how='left')
         solution = solution.merge(_selling_prices, 
@@ -100,7 +93,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
         # DISMISS ACTIONS
         ## DISMISS THE SERVERS THAT ARE OLDER THAN 96
         if not(fleet.empty):
-            dismiss_servers = fleet[fleet['lifespan'] == 96]
+            dismiss_servers = fleet[fleet['lifespan'] == 97]
             if not(dismiss_servers.empty):
                 del_sv = []
                 for i, row in dismiss_servers.iterrows(): # time_step
@@ -110,28 +103,65 @@ def df_to_submissions(all_action_df, path, verbose=False):
                         'server_id': row['server_id'],
                         'action': 'dismiss'
                     })
-                del_df = pd.DataFrame(del_sv)
-                del_df = del_df.merge(servers, on='server_generation', how='left')
-                del_df = del_df.merge(datacenters, on='datacenter_id', how='left')
-                del_df = del_df.merge(_selling_prices, 
-                                        on=['server_generation', 'latency_sensitivity'], 
-                                        how='left')
-                del_df['time_step'] = ts
-                solution = pd.concat([solution, del_df], ignore_index=True)
+                if len(del_sv) > 0:
+                    del_df = pd.DataFrame(del_sv)
+                    del_df = del_df.merge(servers, on='server_generation', how='left')
+                    del_df = del_df.merge(datacenters, on='datacenter_id', how='left')
+                    del_df = del_df.merge(_selling_prices, 
+                                            on=['server_generation', 'latency_sensitivity'], 
+                                            how='left')
+                    del_df['time_step'] = ts
+                    solution = pd.concat([solution, del_df], ignore_index=True)
 
         ## DISMISS SERVERS THAT ARE IN THE ACTION DF
-        
+        solution_after_dismiss = solution.copy()
+
+        dismiss_servers_at_ts = action_df[(action_df['dismiss']>0)]
+
+        if not(dismiss_servers_at_ts.empty):
+            del_sv = []
+            for i, row in dismiss_servers_at_ts.iterrows():
+                src_dc = row['datacenter_id']
+                src_sg = row['server_generation']
+                life = row['lifespan'] - 1
+                if row['dismiss'] < 0.01:
+                    num_servers_dismiss = 0
+                else:
+                    num_servers_dismiss = math.ceil(row['dismiss'])
+                available_servers = fleet[(fleet['lifespan'] == life) & (fleet['datacenter_id'] == src_dc) & (fleet['server_generation'] == src_sg)]
+                available_servers = available_servers.sort_values(by='lifespan', ascending=True)
+                available_servers_dismiss = available_servers.head(num_servers_dismiss)
+                for i, row2 in available_servers_dismiss.iterrows():
+                    del_sv.append({
+                            'datacenter_id': row2['datacenter_id'],
+                            'server_generation': row2['server_generation'],
+                            'server_id': row2['server_id'],
+                            'action': 'dismiss'
+                        })
+                if len(del_sv) > 0:
+                    del_df = pd.DataFrame(del_sv)
+                    del_df = del_df.merge(servers, on='server_generation', how='left')
+                    del_df = del_df.merge(datacenters, on='datacenter_id', how='left')
+                    del_df = del_df.merge(_selling_prices, 
+                                            on=['server_generation', 'latency_sensitivity'], 
+                                            how='left')
+                    del_df['time_step'] = ts
+
+                    
+                    solution_after_dismiss = pd.concat([solution_after_dismiss, del_df], ignore_index=True)
+                # import pdb; pdb.set_trace()
+
         # MOVE SERVERS
-        solution_after_move = solution.copy()
+        solution_after_move = solution_after_dismiss.copy()
         remove_servers = action_df[(action_df['remove']>0)]
         moveto_servers = action_df[(action_df['move_to']>0)]
 
         
         if not(remove_servers.empty):
-            # if not(dismiss_servers_at_ts.empty):
-            #     server_id_dismiss = available_servers_dismiss['server_id'].tolist()
-            # else:
-            #     server_id_dismiss = []
+            if not(dismiss_servers_at_ts.empty):
+                server_id_dismiss = available_servers_dismiss['server_id'].tolist()
+            else:
+                server_id_dismiss = []
             truck = {}
             for i, row in remove_servers.iterrows():
                 src_dc = row['datacenter_id']
@@ -139,36 +169,28 @@ def df_to_submissions(all_action_df, path, verbose=False):
                 life = row['lifespan'] - 1
                 # if src_dc == 'DC1' and src_sg == 'CPU.S4':
                 #     import pdb; pdb.set_trace()
-                # num_servers_int = int(row['remove'])
-                # if (row['remove'] - num_servers_int) < 0.01:
-                #     num_servers = int(row['remove'])
-                # else:
-                # num_servers = math.ceil(row['remove'])
-
-                # if random.randint(0, 1) == 0:
-                # num_servers = math.ceil(row['remove'])
-                if ts % ceil_ratio ==0:
+                num_servers_int = int(row['remove'])
+                if (row['remove'] - num_servers_int) > 0.1:
                     num_servers = math.ceil(row['remove'])
                 else:
-                    num_servers = int(row['remove'])
+                    num_servers = num_servers_int
 
-
+                # if ts % ceil_ratio ==0:
+                #     num_servers = math.ceil(row['remove'])
                 # else:
                 #     num_servers = int(row['remove'])
-
                 # num_servers = int(row['remove'])
                 available_servers = fleet[(fleet['lifespan'] == life) & (fleet['datacenter_id'] == src_dc) & (fleet['server_generation'] == src_sg)]
-                # available_servers = available_servers[~available_servers.index.isin(server_id_dismiss)]
+                available_servers = available_servers[~available_servers.index.isin(server_id_dismiss)]
                 available_servers = available_servers.sort_values(by='lifespan', ascending=True)
                 
                 # check
-                if verbose:
-                    if available_servers.shape[0] < num_servers:
-                        print('ERROR: Not enough servers to remove')
-                        print(f'Time step: {ts}')
-                        print(f'{src_dc} {src_sg} {life}')
-                        print(f'Available: {available_servers.shape[0]}')
-                        print(f'Required: {num_servers}')
+                # if available_servers.shape[0] < num_servers:
+                #     print('ERROR: Not enough servers to remove')
+                #     print(f'Time step: {ts}')
+                #     print(f'{src_dc} {src_sg} {life}')
+                #     print(f'Available: {available_servers.shape[0]}')
+                #     print(f'Required: {num_servers}')
 
 
 
@@ -191,29 +213,21 @@ def df_to_submissions(all_action_df, path, verbose=False):
                 dst_dc = row2['datacenter_id']
                 dst_sg = row2['server_generation']
                 life = row2['lifespan'] - 1
-                # num_servers_int = int(row2['move_to'])
-                # if (row2['move_to'] - num_servers_int) < 0.01:
-                #     num_servers = int(row2['move_to'])
-                # else:
-                # if random.randint(0, 1) == 0:
-                # num_servers = math.ceil(row2['move_to'])
-
-                if ts % ceil_ratio ==0:
-                    num_servers = math.ceil(row2['move_to'])
-                else:
-                    num_servers = int(row2['move_to'])
+                num_servers = math.ceil(row2['move_to'])
+                
+                # if ts % ceil_ratio ==0:
+                #     num_servers = math.ceil(row2['move_to'])
                 # else:
                 #     num_servers = int(row2['move_to'])
 
                 available_servers = truck.get((dst_sg, life), [])
                 # check
-                if verbose:
-                    if len(available_servers) < num_servers:
-                        print('ERROR: Not enough servers to provide')
-                        print(f'Time step: {ts}')
-                        print(f'{src_dc} {src_sg} {life}')
-                        print(f'Ready to remove: {len(available_servers)}')
-                        print(f'Required: {num_servers}')
+                # if len(available_servers) < num_servers:
+                #     print('ERROR: Not enough servers to provide')
+                #     print(f'Time step: {ts}')
+                #     print(f'{src_dc} {src_sg} {life}')
+                #     print(f'Ready to remove: {len(available_servers)}')
+                #     print(f'Required: {num_servers}')
 
 
 
@@ -235,58 +249,11 @@ def df_to_submissions(all_action_df, path, verbose=False):
                     solution_after_move = pd.concat([solution_after_move, move_action_row], ignore_index=True)
                 truck[(dst_sg, life)] = remain_servers + available_servers[num_servers:]
 
-        solution_after_dismiss = solution_after_move.copy()
+        solution_after_move = solution_after_move.drop_duplicates('server_id', inplace=False)
+        solution_after_move = solution_after_move.set_index('server_id', drop=False, inplace=False)
+        solution_after_move = solution_after_move.drop(columns='time_step', inplace=False)
 
-        dismiss_servers_at_ts = action_df[(action_df['dismiss']>0)]
-
-        if not(dismiss_servers_at_ts.empty):
-            del_sv = []
-            moved_servers = solution_after_move[(solution_after_move['action'] == 'move')]['server_id'].tolist()
-            for i, row in dismiss_servers_at_ts.iterrows():
-                src_dc = row['datacenter_id']
-                src_sg = row['server_generation']
-                life = row['lifespan'] - 1
-                # if row['dismiss'] < 0.01:
-                #     num_servers_dismiss = 0
-                # else:
-                num_servers_dismiss = math.ceil(row['dismiss'])
-                available_servers = fleet[(fleet['lifespan'] == life) & (fleet['datacenter_id'] == src_dc) & (fleet['server_generation'] == src_sg)]
-                available_servers = available_servers[~available_servers['server_id'].isin(moved_servers)]
-
-                available_servers = available_servers.sort_values(by='lifespan', ascending=True)
-                if verbose:
-                    if available_servers.shape[0] < num_servers_dismiss:
-                        print('ERROR: Not enough servers to dismiss')
-                        print(f'Time step: {ts}')
-                        print(f'{src_dc} {src_sg} {life}')
-                        print(f'Available: {available_servers.shape[0]}')
-                        print(f'Required: {num_servers_dismiss}')
-                available_servers_dismiss = available_servers.head(num_servers_dismiss)
-                for i, row2 in available_servers_dismiss.iterrows():
-                    del_sv.append({
-                            'datacenter_id': row2['datacenter_id'],
-                            'server_generation': row2['server_generation'],
-                            'server_id': row2['server_id'],
-                            'action': 'dismiss'
-                        })
-                if len(del_sv) > 0:
-                    del_df = pd.DataFrame(del_sv)
-                    del_df = del_df.merge(servers, on='server_generation', how='left')
-                    del_df = del_df.merge(datacenters, on='datacenter_id', how='left')
-                    del_df = del_df.merge(_selling_prices, 
-                                            on=['server_generation', 'latency_sensitivity'], 
-                                            how='left')
-                    del_df['time_step'] = ts
-
-                    
-                    solution_after_dismiss = pd.concat([solution_after_dismiss, del_df], ignore_index=True)
-                # import pdb; pdb.set_trace()
-
-        solution_after_dismiss = solution_after_dismiss.drop_duplicates('server_id', inplace=False)
-        solution_after_dismiss = solution_after_dismiss.set_index('server_id', drop=False, inplace=False)
-        solution_after_dismiss = solution_after_dismiss.drop(columns='time_step', inplace=False)
-
-        return solution_after_dismiss
+        return solution_after_move
 
     FLEET = pd.DataFrame()
     prev_FLEET = pd.DataFrame()
@@ -339,7 +306,8 @@ def df_to_submissions(all_action_df, path, verbose=False):
     rich.print(f'Objective: {OBJECTIVE:0,.2f}')
     solution = solution[['time_step', 'action', 'server_id', 'datacenter_id', 'server_generation']]
     final_solution = solution.to_dict(orient='records')
-    
+    # for i, item in enumerate(pricing_strategy_json):
+    #     pricing_strategy_json[i]['price'] = pricing_strategy_json[i]['price'] * 1.02
     final_solution = {
         'fleet': final_solution,
         'pricing_strategy': pricing_strategy_json,
@@ -348,36 +316,7 @@ def df_to_submissions(all_action_df, path, verbose=False):
         json.dump(final_solution, out, ensure_ascii=False, indent=4)
     print(f'Submission saved to {path}')
 
-def main():
-    all_action_df = pd.read_csv(f'all_action_df_{seed}.csv')
-    df_to_submissions(all_action_df, path=f'{seed}.json')
-    done_flag.set()  # Signal that my_code is done
-
-def cooking_rabbit_animation():
-    global done_flag
-    while not done_flag.is_set():  # Keep running until my_code is done
-        for frame in rabbit_frames:
-            clear()
-            print(frame)
-            time.sleep(1.0)  # Pause between frames
-            if done_flag.is_set():  # Check flag after each frame
-                break
-    
-    # After my_code is done, show the finished frame
-    clear()
-    print(finished_frame)
-
 
 if __name__ == "__main__":
-    # Create threads for the animation and your code
-    # rabbit_thread = threading.Thread(target=cooking_rabbit_animation)
-    # my_code_thread = threading.Thread(target=main)
-
-    # # Start both threads
-    # rabbit_thread.start()
-    # my_code_thread.start()
-
-    # # Wait for both threads to finish
-    # rabbit_thread.join()
-    # my_code_thread.join()
-    main()
+    all_action_df = pd.read_csv(f'all_action_df_{seed}.csv')
+    df_to_submissions(all_action_df, path=f'{seed}.json')
