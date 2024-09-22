@@ -82,7 +82,7 @@ datacenters_id = list(datacenters['datacenter_id'].values)
 datacenter_slots = datacenters.set_index('datacenter_id').to_dict()['slots_capacity']
 # datacenter_slots = {k: v-2 for k, v in datacenter_slots.items()}
 # datacenter_slots = {k: v-41 for k, v in datacenter_slots.items()}
-datacenter_slots = {k: v- for k, v in datacenter_slots.items()}
+datacenter_slots = {k: v-100 for k, v in datacenter_slots.items()}
 
 # datacenter_slots['DC3'] -= 20
 

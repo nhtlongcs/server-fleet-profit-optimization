@@ -75,7 +75,7 @@ time_steps = np.arange(begin_ts + 1, 168 + 1)
 latency_sensitivity = list(datacenters['latency_sensitivity'].unique())
 datacenters_id = list(datacenters['datacenter_id'].values)
 datacenter_slots = datacenters.set_index('datacenter_id').to_dict()['slots_capacity']
-datacenter_slots = {k: v-60 for k, v in datacenter_slots.items()}
+datacenter_slots = {k: v-100 for k, v in datacenter_slots.items()}
 
 # datacenter_slots['DC3'] -= 20
 
