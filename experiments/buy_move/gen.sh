@@ -5,7 +5,7 @@
 # args_list=(80   70   70   20   70   80   80   85   85   85)
 
 args_list=(2381)
-argsb_list=(20)
+argsb_list=(80)
 
 # Ensure both lists have the same length
 if [ ${#args_list[@]} -ne ${#argsb_list[@]} ]; then
