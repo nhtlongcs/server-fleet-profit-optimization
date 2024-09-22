@@ -27,12 +27,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 if len(sys.argv) < 2:
-    print('Usage: python moving_dismiss.py <seed>')
+    print('Usage: python moving_dismiss2.py <seed> <slot_bound>')
     raise SystemExit
 else:
     seed = sys.argv[1]
-    slot_bound = int(sys.argv[2])
-
+    # slot_bound = int(sys.argv[2])
 
 from gurobi_utils.license import load_wsl_lic
 
@@ -55,7 +54,12 @@ env = gp.Env(params=LICENSE_DICT)
 env.setParam('OutputFlag', 0)
 env.start()
 
-
+def get_new_demand_for_new_price(d0, p0, p1, e):
+    # CALCULATE THE NEW DEMAND ACCORDING TO THE NEW PRICE
+    delta_p = (p1 - p0) / p0
+    delta_p_e = delta_p * e
+    d1 = d0 * (1 + delta_p_e)
+    return d1
 
 def get_maintenance_cost(b, x=1, xhat=96):
     # CALCULATE THE CURRENT MAINTENANCE COST
@@ -72,12 +76,14 @@ def adjust_capacity_by_failure_rate(x):
 begin_ts = 0
 time_steps = np.arange(begin_ts + 1, 168 + 1)
 
-
+elasticity = elasticity.set_index(['server_generation', 'latency_sensitivity']).to_dict()['elasticity']
 
 latency_sensitivity = list(datacenters['latency_sensitivity'].unique())
 datacenters_id = list(datacenters['datacenter_id'].values)
 datacenter_slots = datacenters.set_index('datacenter_id').to_dict()['slots_capacity']
-datacenter_slots = {k: v-slot_bound for k, v in datacenter_slots.items()}
+# datacenter_slots = {k: v-2 for k, v in datacenter_slots.items()}
+# datacenter_slots = {k: v-41 for k, v in datacenter_slots.items()}
+# datacenter_slots = {k: v-slot_bound for k, v in datacenter_slots.items()}
 
 # datacenter_slots['DC3'] -= 20
 
@@ -118,6 +124,8 @@ for sg in server_types:
     for ls in latency_sensitivity:  
         hiring_prices[(sg, ls)] = _selling_prices[(_selling_prices['server_generation'] == sg) & (_selling_prices['latency_sensitivity'] == ls)]['selling_price'].values[0]
 
+with open(f'min_recorded_{seed}.pkl', 'rb') as f:
+    min_recorded = pickle.load(f)
 # with open(f'inventory_at_{begin_ts}.pkl', 'rb') as f:
 #     initial_inventory = pickle.load(f)
 
@@ -132,7 +140,11 @@ buy = model.addVars(time_steps, server_types, datacenters_id, lb = 0, vtype=GRB.
 move_to = model.addVars(range(begin_ts, 168 + 1), server_types, range(1, life_expectancy + 1), datacenters_id, lb = 0, vtype=GRB.CONTINUOUS, name="move_to")  # Number of servers moved
 remove_from = model.addVars(range(begin_ts, 168 + 1), server_types, range(1, life_expectancy + 1), datacenters_id, lb = 0, vtype=GRB.CONTINUOUS, name="remove_from")  # Number of servers moved
 #Dismissing servers
-# dismiss = model.addVars(range(begin_ts, 168 + 1), server_types, range(2, life_expectancy + 1), datacenters_id, lb = 0, vtype=GRB.CONTINUOUS, name="dismiss")  # Number of servers moved
+dismiss = model.addVars(range(begin_ts, 168 + 1), server_types, range(2, life_expectancy + 1), datacenters_id, lb = 0, vtype=GRB.CONTINUOUS, name="dismiss")  # Number of servers moved
+
+
+price_vars = model.addVars(time_steps, server_types, latency_sensitivity, lb=0, vtype=GRB.CONTINUOUS, name="price_vars")
+demand_vars = model.addVars(time_steps, server_types, latency_sensitivity, lb=0, vtype=GRB.CONTINUOUS, name="demand_vars")
 
 # Decision variables to track server lifespan in inventory
 # I[t, s, l, life] represents the number of servers of type s with lifespan 'life' in latency group l at time t
@@ -141,6 +153,8 @@ I = model.addVars(range(begin_ts, 168 + 1), server_types, range(1, life_expectan
 # Auxiliary variable for min(I, demand)
 min_var = model.addVars(time_steps, server_types, latency_sensitivity, vtype=GRB.CONTINUOUS,lb = 0, name="min_var")
 Zf_var = model.addVars(time_steps, server_types, latency_sensitivity, vtype=GRB.CONTINUOUS,lb = 0, name="Zf_var")
+
+demand_recorded = {ts: {sg: {ls: 0 for ls in latency_sensitivity} for sg in server_types} for ts in range(1,169)}
 
 
 # Loop over time steps to calculate total profit and define normalized lifespan constraints
@@ -161,14 +175,22 @@ for sg in server_types:
     #         model.addConstr(I[begin_ts, sg, life, dc] == initial_inventory[begin_ts, sg, life, dc], 
     #                         name=f"set_up_initial_inventory_{begin_ts}_{sg}_{dc}_life_{life}") 
 D_max = 2878969
+dismiss_lb = 2
             
 P_recorded = [0] * 169
 U_recorded = [0] * 169
 diff_recorded = 0
-min_recorded = {ts: {sg: {ls: 0 for ls in latency_sensitivity} for sg in server_types} for ts in range(1,169)}
 Zf_recorded = {ts: {sg: {ls: 0 for ls in latency_sensitivity} for sg in server_types} for ts in range(1,169)}
 
 for ts in time_steps:
+    # 0 Pricing Strategy Constraint 
+
+    for sg in server_types:
+        for ls in latency_sensitivity:
+            price_at_ts = hiring_prices[(sg, ls)]
+            e_at_ts = elasticity[(sg, ls)]
+            demand_vars[ts, sg, ls] = get_new_demand_for_new_price(demand.get((ts, sg, ls), 0), price_at_ts, price_vars[ts, sg, ls], e_at_ts)
+            model.addConstr(demand_vars[ts, sg, ls] >= 0, name=f"demand_constraint_{ts}_{sg}_{ls}")
 
     # 1 Buying constraint respecting the release window
     for sg in server_types:
@@ -182,38 +204,41 @@ for ts in time_steps:
                 model.addConstr(buy[ts, sg, dc] == 0, name=f"no_buy_{ts}_{sg}_{dc}")
                 model.addConstr(I[ts, sg, 1, dc] == 0, name=f"buy_{ts}_{sg}_{dc}")
            
-    # # 2.1 Remove and move constraint: available resources
-    # for sg in server_types:
-    #     for dc in datacenters_id:
-    #         for life in range(2, life_expectancy + 1):
-    #             model.addConstr(remove_from[ts, sg, life, dc] <= I[ts - 1, sg, life - 1, dc],
-    #             name = f"remove_constraint_availabel_resource_{ts - 1}_{sg}_{life}_{dc}")
-    #         model.addConstr(remove_from[ts, sg, 1, dc] == 0, name=f"remove_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
-    #         model.addConstr(move_to[ts, sg, 1, dc] == 0, name=f"move_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
+    # 2.1 Remove and move constraint: available resources
+    for sg in server_types:
+        for dc in datacenters_id:
+            for life in range(2, life_expectancy + 1):
+                model.addConstr(remove_from[ts, sg, life, dc] <= I[ts - 1, sg, life - 1, dc],
+                name = f"remove_constraint_available_resource_{ts - 1}_{sg}_{life}_{dc}")
+            model.addConstr(remove_from[ts, sg, 1, dc] == 0, name=f"remove_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
+            model.addConstr(move_to[ts, sg, 1, dc] == 0, name=f"move_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
 
 
-    # # 2.2 Balance move_to and remove_from
-    # for sg in server_types:
-    #     for life in range(2, life_expectancy + 1):
-    #         model.addConstr(gp.quicksum(move_to[ts, sg, life, dc] for dc in datacenters_id)  == gp.quicksum(remove_from[ts, sg, life, dc] for dc in datacenters_id),
-    #                             name=f"balance_move_to_remove_from_{ts}_{sg}_life_{life}")
+    # 2.2 Balance move_to and remove_from
+    for sg in server_types:
+        for life in range(2, life_expectancy + 1):
+            model.addConstr(gp.quicksum(move_to[ts, sg, life, dc] for dc in datacenters_id)  == gp.quicksum(remove_from[ts, sg, life, dc] for dc in datacenters_id),
+                                name=f"balance_move_to_remove_from_{ts}_{sg}_life_{life}")
             
     # Dismiss servers constraint
     # if ts >= life_expectancy + 1:
     # for sg in server_types:
     #     for dc in datacenters_id:
-    #         for life in range(2, life_expectancy + 1):
+    #         for life in range(dismiss_lb, life_expectancy + 1):
     #             model.addConstr(dismiss[ts, sg, life, dc] <= I[ts - 1, sg, life - 1, dc], name=f"dismiss_constraint_{ts}_{sg}_{dc}_life_{life}")
+    #         for life in range(2, dismiss_lb):
+    #             model.addConstr(dismiss[ts, sg, life, dc] == 0, name=f"dismiss_constraint_{ts}_{sg}_{dc}_life_{life}")
 
 
     # 2.3 Update inventory after moving servers
     for sg in server_types:
             for dc in datacenters_id:
                 for life in range(2, life_expectancy + 1):
-                    model.addConstr(I[ts, sg, life, dc] == I[ts - 1, sg, life - 1, dc],
+                    model.addConstr(I[ts, sg, life, dc] == I[ts - 1, sg, life - 1, dc] + move_to[ts, sg, life, dc] - remove_from[ts, sg, life, dc],
                             name=f"update_inventory_after_all_actions_{ts}_{sg}_{dc}_life_{life}")
 
 
+    
 
     # 3. Constraint: Slot capacity of each datacenter
     for dc in datacenters_id:
@@ -231,8 +256,9 @@ for ts in time_steps:
             capacity = total_inventory * server_capacity[sg]
             model.addConstr(Zf_var[ts, sg, ls] == adjust_capacity_by_failure_rate(capacity), name=f"custom_capacity_{ts}_{sg}_{ls}")
             model.addConstr(min_var[ts, sg, ls] <= Zf_var.get((ts, sg, ls), 0), name=f"min_capacity_{ts}_{sg}_{ls}")
-            model.addConstr(min_var[ts, sg, ls] <= demand.get((ts, sg, ls), 0), name=f"min_demand_{ts}_{sg}_{ls}")
+            model.addConstr(min_var[ts, sg, ls] <= demand_vars[ts, sg, ls], name=f"min_demand_{ts}_{sg}_{ls}")
 
+            model.addConstr(min_var[ts, sg, ls] == min_recorded[ts][sg][ls], name=f"min_recorded_capacity_{ts}_{sg}_{ls}")
             
     # # Difference between demand and capacity
     # for sg in server_types:
@@ -242,8 +268,10 @@ for ts in time_steps:
     #         model.addConstr(diff_demand_capacity[ts, sg, ls] <= demand.get((ts, sg, ls), 0), name=f"diff_demand_capacity_less_than_demand{ts}_{sg}_{ls}")
 
     # Revenue at time step t
+        # 1/2 * ((min_var[ts, sg, ls] * hiring_prices.get((sg, ls), 0)) + (min_recorded[int(ts)][sg][ls] * price_vars[ts, sg, ls]))
     revenue_t = gp.quicksum(
-        min_var[ts, sg, ls] * hiring_prices.get((sg, ls), 0)
+        # (min_var[ts, sg, ls] * hiring_prices.get((sg, ls), 0))
+        min_recorded[ts][sg][ls] * price_vars[ts, sg, ls]
         for sg in server_types for ls in latency_sensitivity
     )
 
@@ -251,7 +279,7 @@ for ts in time_steps:
         for ls in latency_sensitivity:
             min_recorded[ts][sg][ls] = min_var[ts, sg, ls]
             Zf_recorded[ts][sg][ls] = Zf_var[ts, sg, ls]
-    
+       
     # Cost at time step t
     buy_cost_t = gp.quicksum(buying_cost[sg] * buy[ts, sg, dc] for sg in server_types for dc in datacenters_id)
     energy_cost_t = gp.quicksum(energy_prices[sg, dc] * gp.quicksum(I[ts, sg, life, dc] for life in range(1, life_expectancy + 1)) for sg in server_types for dc in datacenters_id)
@@ -263,23 +291,19 @@ for ts in time_steps:
         for sg in server_types for dc in datacenters_id for life in range(1, life_expectancy + 1)
     )
 
-    # moving_cost_t = moving_cost * gp.quicksum(move_to[ts, sg, life, dc] for life in range(2, life_expectancy + 1) for sg in server_types for dc in datacenters_id )
+    moving_cost_t = moving_cost * gp.quicksum(move_to[ts, sg, life, dc] for life in range(2, life_expectancy + 1) for sg in server_types for dc in datacenters_id )
     
     
     # Total cost at time step t
-    total_cost_t = buy_cost_t + energy_cost_t + maintenance_cost_t
+    total_cost_t = buy_cost_t + energy_cost_t + maintenance_cost_t + moving_cost_t
     
     # Profit at time step t
     profit_t = revenue_t - total_cost_t
     
     P_recorded[ts] = profit_t
     # Calculate demand at time step t
-    demand_ts = 0
-    for sg in server_types:
-        for ls in latency_sensitivity:
-            demand_ts += demand.get((ts, sg, ls), 0)
     L = (1/life_expectancy) * gp.quicksum([life * gp.quicksum(I[ts, sg, life, dc] for sg in server_types for dc in datacenters_id) for life in range(1, life_expectancy + 1)])
-    total_L += L
+    total_L += L 
 
 
     U = gp.quicksum(min_var[ts, sg, ls] - Zf_var[ts, sg, ls] for sg in server_types for ls in latency_sensitivity)
@@ -340,6 +364,10 @@ rich.print(f"Profit: {total_profit.getValue():0,.2f}")
 if model.status == GRB.OPTIMAL:
     R = 0
     C = 0
+    detect_ts_less_than = []
+    detect_ts_greater_than = []
+    detect_ts_equal_to = []
+    
     accumulated_profit = 0
     action_dict = {
         'server_generation': [],
@@ -355,16 +383,18 @@ if model.status == GRB.OPTIMAL:
         # print(f"\nTime step: {ts}")
         P_recorded[ts] = float(P_recorded[ts].getValue())
         U_recorded[ts] = float(U_recorded[ts].getValue())
-
+        # Bought servers
         for sg in server_types:
             for ls in latency_sensitivity:
-                min_recorded[ts][sg][ls] = float(min_recorded[ts][sg][ls].x)
+                demand_recorded[ts][sg][ls] = float(demand_vars[ts, sg, ls].getValue())
                 Zf_recorded[ts][sg][ls] = float(Zf_recorded[ts][sg][ls].x)
-                D = demand.get((ts, sg, ls), 0)
-                diff_recorded += Zf_recorded[ts][sg][ls] - D
-                
-
-        # Bought servers
+                diff_recorded += Zf_recorded[ts][sg][ls] - demand_recorded[ts][sg][ls]
+                if Zf_recorded[ts][sg][ls] == demand_recorded[ts][sg][ls]:
+                    detect_ts_equal_to.append(ts)
+                elif Zf_recorded[ts][sg][ls] > demand_recorded[ts][sg][ls]:
+                    detect_ts_greater_than.append(ts)
+                elif Zf_recorded[ts][sg][ls] < demand_recorded[ts][sg][ls]:
+                    detect_ts_less_than.append(ts)    
         for sg in server_types:
             for dc in datacenters_id:
                 bought_qty = buy[ts, sg, dc].x
@@ -409,17 +439,24 @@ if model.status == GRB.OPTIMAL:
                     action_dict['time_step'].append(ts)
                     action_dict['lifespan'].append(life)
                     action_dict['buying_servers'].append(0)
-                    action_dict['remove'].append(0)
-                    action_dict['move_to'].append(0)
+                    action_dict['remove'].append(remove_at)
+                    action_dict['move_to'].append(moveto_at)
 
                     
-                    # dismiss_qty = dismiss[ts, sg, life, dc].x
-                    action_dict['dismiss'].append(0)
+                    dismiss_qty = dismiss[ts, sg, life, dc].x
+                    action_dict['dismiss'].append(dismiss_qty)
                     # if dismiss_qty > 0:
                     #     print(f"Dismiss {int(dismiss_qty)} {sg} with lifespan {life} from {dc}.")
-                
-                
-
+    pricing_stategies = []
+    for ts in range(begin_ts + 1,168 + 1):
+        for sg in server_types:
+            for ls in latency_sensitivity:
+                pricing_stategy = {}
+                pricing_stategy['time_step'] = ts
+                pricing_stategy['server_generation'] = sg
+                pricing_stategy['latency_sensitivity'] = ls
+                pricing_stategy['price'] = price_vars[ts, sg, ls].x
+                pricing_stategies.append(pricing_stategy)
 #         # Get Demand
 #         demand_t = sum(demand.get((ts, sg, ls), 0) * hiring_prices.get((sg, ls), 0) for sg in server_types for ls in latency_sensitivity)
         
@@ -475,14 +512,24 @@ if model.status == GRB.OPTIMAL:
 #     json.dump(P_recorded, f)
 # with open(f'U_recorded.json', 'w') as f:
 #     json.dump(U_recorded, f)
+with open(f'pricing_strategy_{seed}.json', 'w') as f:
+    json.dump(pricing_stategies, f)
 
+# with open(f'detect_ts_equal_to.pkl', 'wb') as f:
+#     pickle.dump(detect_ts_equal_to, f)
+
+# with open(f'detect_ts_less_than.pkl', 'wb') as f:
+#     pickle.dump(detect_ts_less_than, f)
+
+# with open(f'detect_ts_greater_than.pkl', 'wb') as f:
+#     pickle.dump(detect_ts_greater_than, f)
+
+# with open(f'new_demand.pkl', 'wb') as f:
+#     pickle.dump(demand_recorded, f)
 rich.print(f"Diff_U: {diff_recorded:0,.2f}")
-with open(f'min_recorded_{seed}.pkl', 'wb') as f:
-    pickle.dump(min_recorded, f)
 
-
-action_df = pd.DataFrame(action_dict)
-action_df.to_csv(f'all_action_df_{seed}.csv', index=False)
+# action_df = pd.DataFrame(action_dict)
+# action_df.to_csv(f'all_action_df_{seed}.csv', index=False)
 # action_df.to_csv('dismiss_action_df_reduce_slot.csv', index=False)
 # import pdb; pdb.set_trace()
 # df_to_submissions(initial_inventory, action_df)

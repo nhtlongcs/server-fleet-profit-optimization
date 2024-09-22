@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 if len(sys.argv) < 2:
-    print('Usage: python moving_dismiss.py <seed>')
+    print('Usage: python moving_dismiss.py <seed> <slot_bound>')
     raise SystemExit
 else:
     seed = sys.argv[1]
@@ -182,21 +182,21 @@ for ts in time_steps:
                 model.addConstr(buy[ts, sg, dc] == 0, name=f"no_buy_{ts}_{sg}_{dc}")
                 model.addConstr(I[ts, sg, 1, dc] == 0, name=f"buy_{ts}_{sg}_{dc}")
            
-    # # 2.1 Remove and move constraint: available resources
-    # for sg in server_types:
-    #     for dc in datacenters_id:
-    #         for life in range(2, life_expectancy + 1):
-    #             model.addConstr(remove_from[ts, sg, life, dc] <= I[ts - 1, sg, life - 1, dc],
-    #             name = f"remove_constraint_availabel_resource_{ts - 1}_{sg}_{life}_{dc}")
-    #         model.addConstr(remove_from[ts, sg, 1, dc] == 0, name=f"remove_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
-    #         model.addConstr(move_to[ts, sg, 1, dc] == 0, name=f"move_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
+    # 2.1 Remove and move constraint: available resources
+    for sg in server_types:
+        for dc in datacenters_id:
+            for life in range(2, life_expectancy + 1):
+                model.addConstr(remove_from[ts, sg, life, dc] <= I[ts - 1, sg, life - 1, dc],
+                name = f"remove_constraint_availabel_resource_{ts - 1}_{sg}_{life}_{dc}")
+            model.addConstr(remove_from[ts, sg, 1, dc] == 0, name=f"remove_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
+            model.addConstr(move_to[ts, sg, 1, dc] == 0, name=f"move_constraint_no_beginning_{begin_ts}_{sg}_{dc}")
 
 
-    # # 2.2 Balance move_to and remove_from
-    # for sg in server_types:
-    #     for life in range(2, life_expectancy + 1):
-    #         model.addConstr(gp.quicksum(move_to[ts, sg, life, dc] for dc in datacenters_id)  == gp.quicksum(remove_from[ts, sg, life, dc] for dc in datacenters_id),
-    #                             name=f"balance_move_to_remove_from_{ts}_{sg}_life_{life}")
+    # 2.2 Balance move_to and remove_from
+    for sg in server_types:
+        for life in range(2, life_expectancy + 1):
+            model.addConstr(gp.quicksum(move_to[ts, sg, life, dc] for dc in datacenters_id)  == gp.quicksum(remove_from[ts, sg, life, dc] for dc in datacenters_id),
+                                name=f"balance_move_to_remove_from_{ts}_{sg}_life_{life}")
             
     # Dismiss servers constraint
     # if ts >= life_expectancy + 1:
@@ -210,7 +210,7 @@ for ts in time_steps:
     for sg in server_types:
             for dc in datacenters_id:
                 for life in range(2, life_expectancy + 1):
-                    model.addConstr(I[ts, sg, life, dc] == I[ts - 1, sg, life - 1, dc],
+                    model.addConstr(I[ts, sg, life, dc] == I[ts - 1, sg, life - 1, dc] + move_to[ts, sg, life, dc] - remove_from[ts, sg, life, dc],
                             name=f"update_inventory_after_all_actions_{ts}_{sg}_{dc}_life_{life}")
 
 
@@ -263,11 +263,11 @@ for ts in time_steps:
         for sg in server_types for dc in datacenters_id for life in range(1, life_expectancy + 1)
     )
 
-    # moving_cost_t = moving_cost * gp.quicksum(move_to[ts, sg, life, dc] for life in range(2, life_expectancy + 1) for sg in server_types for dc in datacenters_id )
+    moving_cost_t = moving_cost * gp.quicksum(move_to[ts, sg, life, dc] for life in range(2, life_expectancy + 1) for sg in server_types for dc in datacenters_id )
     
     
     # Total cost at time step t
-    total_cost_t = buy_cost_t + energy_cost_t + maintenance_cost_t
+    total_cost_t = buy_cost_t + energy_cost_t + maintenance_cost_t + moving_cost_t
     
     # Profit at time step t
     profit_t = revenue_t - total_cost_t
@@ -330,10 +330,10 @@ model.optimize()
 
 rich.print(f"Linear Objective: {model.objVal:0,.2f}")
 rich.print(f"Profit: {total_profit.getValue():0,.2f}")
-# rich.print(f"Lifespan: {total_L.getValue():0,.2f}")
-# rich.print(f"Lifespan(Normalized): {total_L.getValue()/total_buy.getValue():0,.2f}")
-# rich.print(f"Number of Servers: {total_buy.getValue():0,.2f}")
-# rich.print(f"Utilize: {total_U.getValue():0,.2f}")
+rich.print(f"Lifespan: {total_L.getValue():0,.2f}")
+rich.print(f"Lifespan(Normalized): {total_L.getValue()/total_buy.getValue():0,.2f}")
+rich.print(f"Number of Servers: {total_buy.getValue():0,.2f}")
+rich.print(f"Utilize: {total_U.getValue():0,.2f}")
 
 # import pdb; pdb.set_trace()
 # Extract and print results
@@ -409,8 +409,8 @@ if model.status == GRB.OPTIMAL:
                     action_dict['time_step'].append(ts)
                     action_dict['lifespan'].append(life)
                     action_dict['buying_servers'].append(0)
-                    action_dict['remove'].append(0)
-                    action_dict['move_to'].append(0)
+                    action_dict['remove'].append(remove_at)
+                    action_dict['move_to'].append(moveto_at)
 
                     
                     # dismiss_qty = dismiss[ts, sg, life, dc].x

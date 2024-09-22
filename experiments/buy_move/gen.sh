@@ -19,8 +19,8 @@ for i in "${!args_list[@]}"; do
     arg=${args_list[$i]}
     argb=${argsb_list[$i]}
     echo "Running with arguments $arg and $argb"
-    python buy.py "$arg" "$argb" 
-    python buy2.py "$arg" "$argb" 
+    python moving.py "$arg" "$argb" 
+    python moving2.py "$arg" 
     python cook.py "$arg"
     huawei-eval -f "$arg.json" -s "$arg" -v
 done

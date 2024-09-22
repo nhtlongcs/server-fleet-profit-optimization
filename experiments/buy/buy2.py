@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 if len(sys.argv) < 2:
-    print('Usage: python moving_dismiss2.py <seed> <slot_bound>')
+    print('Usage: python buy2.py <seed>')
     raise SystemExit
 else:
     seed = sys.argv[1]
