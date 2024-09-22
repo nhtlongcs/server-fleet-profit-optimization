@@ -302,6 +302,11 @@ def check_datacenter_slots_size_constraint(fleet):
     test = slots['slots_size'] > slots['slots_capacity']
     constraint = test.any()
     if constraint:
+        print('Slots size')
+        print(slots['slots_size'])
+        print('Slots capacity')
+        print(slots['slots_capacity'])
+
         raise(ValueError('Constraint 2 has been violated.'))
     return slots
 
