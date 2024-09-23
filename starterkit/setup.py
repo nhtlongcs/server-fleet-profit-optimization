@@ -9,7 +9,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'huawei-eval=baseline.evaluator:main',
+            'fleet-eval=baseline.evaluator:main',
         ],
     },
 )
