@@ -1,0 +1,47 @@
+{
+  "fleet": [
+    {
+      "time_step": 1,
+      "datacenter_id": "DC1",
+      "server_generation": "CPU.S1",
+      "server_id": "1",
+      "action": "buy"
+    },
+    {
+      "time_step": 2,
+      "datacenter_id": "DC1",
+      "server_generation": "CPU.S1",
+      "server_id": "1",
+      "action": "hold"
+    },
+    {
+      "time_step": 3,
+      "datacenter_id": "DC3",
+      "server_generation": "CPU.S1",
+      "server_id": "1",
+      "action": "move"
+    },
+    {
+      "time_step": 4,
+      "datacenter_id": "DC3",
+      "server_generation": "CPU.S1",
+      "server_id": "1",
+      "action": "hold"
+    },
+    {
+      "time_step": 5,
+      "datacenter_id": "DC3",
+      "server_generation": "CPU.S1",
+      "server_id": "1",
+      "action": "hold"
+    }
+  ],
+  "pricing_strategy": [
+    {
+      "time_step": 1,
+      "latency_sensitivity": "low",
+      "server_generation": "CPU.S1",
+      "price": 15
+    }
+  ]
+}
